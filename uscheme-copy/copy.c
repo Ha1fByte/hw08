@@ -30,8 +30,13 @@ struct Stack {
 /* copy.c 332a */
 int nalloc;   /* OMIT */
 Value* allocloc(void) {
-    if (hp == heaplimit)
+    if (hp == heaplimit){
         collect();
+        if(hp == heaplimit){
+          //increase size using malloc & free
+          //malloc value * (semispacesize+2)
+        }
+      }
     assert(hp < heaplimit);
     assert(isinspace(hp, fromspace)); /*runs after spaces are swapped*/ /*OMIT*/
     nalloc++;   /* OMIT */
@@ -192,7 +197,30 @@ static void scantest(UnitTest t) {
 }
 /* copy.c ((prototype)) 1095a */
 /* you need to redefine these functions */
-static void collect(void) { (void)scanframe; (void)scantests; assert(0); }
+static void collect(void) {
+  if(hp == NULL){
+    semispacesize = 50;//value;
+    *hp = malloc(semispacesize*sizeof(Value));
+    *heaplimit = hp+ (semispacesize/2);
+    }
+  Value fp = hp;
+  Value *scanp = hp = tospace;
+  scanenv(*roots.global.user);
+  for(Frame *fr = roots.stack->frames; fr<roots.stack->sp; fr++){
+    forawrd(*fr);
+  }
+  
+  for(UnitTestlistlist tests = roots.globals.internal.pending_tests; tests; tests=tests->tl){
+    
+  }
+  for(; scanp < hp; scanp++){
+    scanloc(scanp) //Catch up pointer, it's mostly in the book
+    
+  }
+  
+
+  //Swap
+  (void)scanframe; (void)scantests; assert(0); }
 void printfinalstats(void) { assert(0); }
 /* you need to initialize this variable */
 int gc_uses_mark_bits;
