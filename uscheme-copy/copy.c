@@ -32,10 +32,10 @@ int nalloc;   /* OMIT */
 Value* allocloc(void) {
     if (hp == heaplimit){
         collect();
-        if(hp == heaplimit){
+        //if(hp == heaplimit){
           //increase size using malloc & free
           //malloc value * (semispacesize+2)
-        }
+        //}
       }
     assert(hp < heaplimit);
     assert(isinspace(hp, fromspace)); /*runs after spaces are swapped*/ /*OMIT*/
@@ -200,25 +200,42 @@ static void scantest(UnitTest t) {
 static void collect(void) {
   if(hp == NULL){
     semispacesize = 50;//value;
-    *hp = malloc(semispacesize*sizeof(Value));
-    *heaplimit = hp+ (semispacesize/2);
+    hp = malloc(semispacesize*sizeof(Value));
+    heaplimit = hp+semispace;
+    
+    //need to make tospace and fromspace.
+    }else{
+    copy();
+    
+      if(hp == heaplimit){
+        //increase to space size, copy
+      
+      }
     }
+    
+    
+    
+}
+  
+
+static void copy(void){
   Value fp = hp;
   Value *scanp = hp = tospace;
   scanenv(*roots.global.user);
   for(Frame *fr = roots.stack->frames; fr<roots.stack->sp; fr++){
-    forawrd(*fr);
-  }
+    scanframe(fr);
+        }
   
   for(UnitTestlistlist tests = roots.globals.internal.pending_tests; tests; tests=tests->tl){
-    
+    scantest(tests)
   }
   for(; scanp < hp; scanp++){
     scanloc(scanp) //Catch up pointer, it's mostly in the book
-    
   }
   
+  //swap tosapce and fromspace
 
+}
   //Swap
   (void)scanframe; (void)scantests; assert(0); }
 void printfinalstats(void) { assert(0); }
