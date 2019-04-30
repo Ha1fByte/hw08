@@ -2,7 +2,7 @@
 /* copy.c 331a */
 /* private declarations for copying collection 331b */
 static Value *fromspace, *tospace;    /* used only at GC time */
-static int semispacesize;
+static int semispacesize = 12;
                                      /* # of objects in fromspace and tospace */
 /* private declarations for copying collection 331c */
 static Value *hp, *heaplimit;                /* used for every allocation */
@@ -20,7 +20,9 @@ static void scanloc      (Value *vp);
 static Value *forward(Value *p);
 /* private declarations for copying collection 1094e */
 static void collect(void);
+static void copy(void);
 /* copy.c 331d */
+
 /* representation of [[struct Stack]] 1069a */
 struct Stack {
     int size;
@@ -30,13 +32,9 @@ struct Stack {
 /* copy.c 332a */
 int nalloc;   /* OMIT */
 Value* allocloc(void) {
-    if (hp == heaplimit){
+    if (hp == heaplimit) {
         collect();
-        //if(hp == heaplimit){
-          //increase size using malloc & free
-          //malloc value * (semispacesize+2)
-        //}
-      }
+    }
     assert(hp < heaplimit);
     assert(isinspace(hp, fromspace)); /*runs after spaces are swapped*/ /*OMIT*/
     nalloc++;   /* OMIT */
@@ -91,8 +89,8 @@ static Value* forward(Value *p) {
 
     /* tell the debugging interface that [[hp]] is about to be allocated 338c */
             gc_debug_pre_allocate(hp);
-            *hp = *p;
-            *p  = mkForward(hp);
+            *hp = *p;  /* this is a copy */
+            *p  = mkForward(hp);  
                                 /* overwrite *p with a new forwarding pointer */
             assert(isinspace(p->u.forward, tospace)); /*extra*/   /* OMIT */
             return hp++;
@@ -198,46 +196,99 @@ static void scantest(UnitTest t) {
 /* copy.c ((prototype)) 1095a */
 /* you need to redefine these functions */
 static void collect(void) {
-  if(hp == NULL){
-    semispacesize = 50;//value;
-    hp = malloc(semispacesize*sizeof(Value));
-    heaplimit = hp+semispace;
-    
-    //need to make tospace and fromspace.
-    }else{
-    copy();
-    
-      if(hp == heaplimit){
-        //increase to space size, copy
-      
-      }
+    // If we have no hp, allocate everything
+    if(hp == NULL) { 
+        // Allocate the fromspace, tell GC we did
+        fromspace = (Value*) malloc(semispacesize * sizeof(Value));
+        gc_debug_post_acquire(fromspace, semispacesize);
+
+        // Allocate the tospace, tell GC we did
+        tospace = (Value*) malloc(semispacesize * sizeof(Value));
+        gc_debug_post_acquire(tospace, semispacesize);
+
+        // Set hp and heaplimit to fromspace 
+        heaplimit = hp = fromspace;  
+        heaplimit += semispacesize;  // increase the limit
+
+        return; // We just allocated so we can't do anything else
     }
-    
-    
-    
-}
   
+    // Copy everything over
+    copy();
 
-static void copy(void){
-  Value fp = hp;
-  Value *scanp = hp = tospace;
-  scanenv(*roots.global.user);
-  for(Frame *fr = roots.stack->frames; fr<roots.stack->sp; fr++){
-    scanframe(fr);
-        }
-  
-  for(UnitTestlistlist tests = roots.globals.internal.pending_tests; tests; tests=tests->tl){
-    scantest(tests)
-  }
-  for(; scanp < hp; scanp++){
-    scanloc(scanp) //Catch up pointer, it's mostly in the book
-  }
-  
-  //swap tosapce and fromspace
+    // If hp is at the limit we need to allocate more space
+    // We increment semispace size after copy() because copy uses the old space
+    // size when performing `gc_debug_post_reclaim`
+    if (hp == heaplimit){
+        // Free the old tospace
+        gc_debug_pre_release(tospace, semispacesize);
+        free(tospace);
 
+        // Allocate the new tospace
+        tospace = (Value*) malloc(semispacesize * sizeof(Value) * 2);
+        gc_debug_post_acquire(tospace, semispacesize * 2);
+
+        // Copy over to the new tospace. This flips tospace and fromspace
+        copy();
+
+        // tospace is now the smaller space
+
+        // Free tospace 
+        gc_debug_pre_release(tospace, semispacesize);
+        free(tospace);
+
+        // Increment semispace size and set heaplimit
+        semispacesize *= 2;
+        heaplimit = fromspace + semispacesize;
+
+        // Allocate new tospace
+        tospace = (Value*) malloc(semispacesize * sizeof(Value));
+        gc_debug_post_acquire(tospace, semispacesize);
+    } 
 }
-  //Swap
-  (void)scanframe; (void)scantests; assert(0); }
-void printfinalstats(void) { assert(0); }
+
+/* This function copies all the items from "fromspace" to "tospace" */
+/* almost everything can be found on page 332 */
+void copy(void){
+    (void)scanframe; (void)scantests; // this was here but idk what it does
+
+    Value *scanp = hp = tospace; 
+
+    // Scan the environment
+    scanenv(*roots.globals.user);
+
+    // Scan frames and forward the pointers (c)
+    Frame *fr = roots.stack->frames;
+    for(; fr < roots.stack->sp; ++fr){
+        scanframe(fr);
+    }
+
+    // Scan list of unit tests and forward the pointers (d)
+    UnitTestlistlist tests = roots.globals.internal.pending_tests;
+    for (; tests; tests=tests->tl) {
+        scantests(tests->hd);
+    }
+
+    // Scan registers and forward the pointers (e)
+    Registerlist regs = roots.registers;
+    for(; regs != NULL; regs = regs->tl) {
+        scanloc(regs->hd);
+    }
+
+    // Scan the objects we've forwarded and forward pointers (f) 
+    for(; scanp < hp; ++scanp){
+        scanloc(scanp);  // Catch up pointer, it's mostly in the book
+    }
+
+    // Swap at the end
+    Value *tmp = fromspace;
+    heaplimit = fromspace = tospace;
+    heaplimit += semispacesize;
+    tospace = tmp; 
+    
+    // Mark all objects in tospace as invalid (page 337 b)
+    gc_debug_post_reclaim_block(tospace, semispacesize);
+}
+void printfinalstats(void) { printf("debugstuffs\n"); }
 /* you need to initialize this variable */
-int gc_uses_mark_bits;
+int gc_uses_mark_bits = 0;
