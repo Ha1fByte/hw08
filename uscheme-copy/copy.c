@@ -2,8 +2,12 @@
 /* copy.c 331a */
 /* private declarations for copying collection 331b */
 static Value *fromspace, *tospace;    /* used only at GC time */
-static int semispacesize = 12;
-                                     /* # of objects in fromspace and tospace */
+static int semispacesize = 12;/* # of objects in fromspace and tospace */
+
+static int collectionCount = 0;
+static int totalMemoryUsed = 0;
+static int liveObjects  = 0;
+
 /* private declarations for copying collection 331c */
 static Value *hp, *heaplimit;                /* used for every allocation */
 /* private declarations for copying collection 332b */
@@ -196,6 +200,7 @@ static void scantest(UnitTest t) {
 /* copy.c ((prototype)) 1095a */
 /* you need to redefine these functions */
 static void collect(void) {
+        collectionCount++;
     // If we have no hp, allocate everything
     if(hp == NULL) { 
         // Allocate the fromspace, tell GC we did
@@ -244,7 +249,12 @@ static void collect(void) {
         // Allocate new tospace
         tospace = (Value*) malloc(semispacesize * sizeof(Value));
         gc_debug_post_acquire(tospace, semispacesize);
+
     } 
+    
+    if(collectionCount % 10 == 0){
+        printf("Total cells allocated: %d Heapsize: %d", liveObjects, (semispace*2));
+        }
 }
 
 /* This function copies all the items from "fromspace" to "tospace" */
@@ -275,9 +285,12 @@ void copy(void){
         scanloc(regs->hd);
     }
 
+    liveObjects = 0;
     // Scan the objects we've forwarded and forward pointers (f) 
     for(; scanp < hp; ++scanp){
         scanloc(scanp);  // Catch up pointer, it's mostly in the book
+        liveObjects++;
+        totalMemoryUsed++;
     }
 
     // Swap at the end
@@ -286,9 +299,12 @@ void copy(void){
     heaplimit += semispacesize;
     tospace = tmp; 
     
+    printf("Heapsize: %d Live Objects: %d Live Objects/Heapsize: %f", semispace*2, liveObjects, (liveObjects/(semispace*2))
     // Mark all objects in tospace as invalid (page 337 b)
     gc_debug_post_reclaim_block(tospace, semispacesize);
 }
-void printfinalstats(void) { printf("debugstuffs\n"); }
+void printfinalstats(void) {   
+    printf("Heapsize: %d Live Objects: %d Live Objects/Heapsize: %f Total Collections: %d Total Objects Copied: %d ", semispace*2, liveObjects, (liveObjects/(semispace*2)), collectionCount, totalMemoryUsed); 
+    }
 /* you need to initialize this variable */
 int gc_uses_mark_bits = 0;
